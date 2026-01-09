@@ -279,43 +279,376 @@ export async function getSecretsForService(serviceName: string): Promise<Record<
 }
 
 /**
- * Predefined secret templates for common providers
+ * API Provider Template with documentation and instructions
  */
-export const SecretTemplates = {
-  gemini: {
+export interface ApiProviderTemplate {
+  name: string;
+  category: 'ai' | 'api' | 'database' | 'auth' | 'payment' | 'other';
+  provider: string;
+  description: string;
+  service: string;
+  documentationUrl: string;
+  instructions: string[];
+  freeTrialAvailable: boolean;
+  estimatedSetupTime: string;
+}
+
+/**
+ * Predefined secret templates for all Tat-Life API providers
+ */
+export const SecretTemplates: Record<string, ApiProviderTemplate> = {
+  // ========== CORE / REQUIRED ==========
+  GEMINI_API_KEY: {
     name: 'GEMINI_API_KEY',
-    category: 'ai' as const,
+    category: 'ai',
     provider: 'Google',
     description: 'Google Gemini AI API key for text and image generation',
+    service: 'studio-api',
+    documentationUrl: 'https://aistudio.google.com/apikey',
+    instructions: [
+      '1. Go to https://aistudio.google.com/apikey',
+      '2. Sign in with your Google account',
+      '3. Click "Create API Key"',
+      '4. Select your Google Cloud project (or create one)',
+      '5. Copy the generated API key',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '2 minutes',
   },
-  openai: {
+  
+  GOOGLE_MAPS_API_KEY: {
+    name: 'GOOGLE_MAPS_API_KEY',
+    category: 'api',
+    provider: 'Google',
+    description: 'Google Maps SDK for studio/shop locations',
+    service: 'tatlife-app',
+    documentationUrl: 'https://console.cloud.google.com/apis/credentials',
+    instructions: [
+      '1. Go to https://console.cloud.google.com/apis/credentials',
+      '2. Select your project (tat-life)',
+      '3. Click "Create Credentials" → "API Key"',
+      '4. Click "Edit API Key" to restrict it',
+      '5. Under "API restrictions", select:',
+      '   - Maps SDK for Android',
+      '   - Maps SDK for iOS',
+      '   - Places API',
+      '6. Copy the API key',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '5 minutes',
+  },
+
+  // ========== CONTENT APIS ==========
+  YOUTUBE_API_KEY: {
+    name: 'YOUTUBE_API_KEY',
+    category: 'api',
+    provider: 'Google',
+    description: 'YouTube Data API v3 for tattoo tutorials and content',
+    service: 'content-api',
+    documentationUrl: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com',
+    instructions: [
+      '1. Go to https://console.cloud.google.com/apis/library/youtube.googleapis.com',
+      '2. Enable the "YouTube Data API v3"',
+      '3. Go to Credentials → Create Credentials → API Key',
+      '4. Restrict the key to YouTube Data API v3 only',
+      '5. Copy the API key',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '3 minutes',
+  },
+
+  INSTAGRAM_CLIENT_ID: {
+    name: 'INSTAGRAM_CLIENT_ID',
+    category: 'api',
+    provider: 'Meta',
+    description: 'Instagram Graph API Client ID for artist content',
+    service: 'explore-api',
+    documentationUrl: 'https://developers.facebook.com/apps/',
+    instructions: [
+      '1. Go to https://developers.facebook.com/apps/',
+      '2. Click "Create App" → "Consumer" or "Business"',
+      '3. Add the "Instagram Graph API" product',
+      '4. Go to App Settings → Basic',
+      '5. Copy the App ID (this is your Client ID)',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '15 minutes',
+  },
+
+  INSTAGRAM_CLIENT_SECRET: {
+    name: 'INSTAGRAM_CLIENT_SECRET',
+    category: 'api',
+    provider: 'Meta',
+    description: 'Instagram Graph API Client Secret',
+    service: 'explore-api',
+    documentationUrl: 'https://developers.facebook.com/apps/',
+    instructions: [
+      '1. Go to your Facebook App dashboard',
+      '2. Go to App Settings → Basic',
+      '3. Click "Show" next to App Secret',
+      '4. Enter your Facebook password to reveal',
+      '5. Copy the App Secret',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '2 minutes',
+  },
+
+  TIKTOK_CLIENT_KEY: {
+    name: 'TIKTOK_CLIENT_KEY',
+    category: 'api',
+    provider: 'TikTok',
+    description: 'TikTok API Client Key for tattoo content',
+    service: 'content-api',
+    documentationUrl: 'https://developers.tiktok.com/apps/',
+    instructions: [
+      '1. Go to https://developers.tiktok.com/',
+      '2. Sign in and go to "My Apps"',
+      '3. Click "Create App"',
+      '4. Fill in app details and select required permissions',
+      '5. After approval, find Client Key in app dashboard',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '10 minutes (+ approval time)',
+  },
+
+  TIKTOK_CLIENT_SECRET: {
+    name: 'TIKTOK_CLIENT_SECRET',
+    category: 'api',
+    provider: 'TikTok',
+    description: 'TikTok API Client Secret',
+    service: 'content-api',
+    documentationUrl: 'https://developers.tiktok.com/apps/',
+    instructions: [
+      '1. Go to your TikTok app dashboard',
+      '2. Find Client Secret in the app configuration',
+      '3. Copy the secret value',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '1 minute',
+  },
+
+  PINTEREST_ACCESS_TOKEN: {
+    name: 'PINTEREST_ACCESS_TOKEN',
+    category: 'api',
+    provider: 'Pinterest',
+    description: 'Pinterest API access token for tattoo inspiration',
+    service: 'content-api',
+    documentationUrl: 'https://developers.pinterest.com/apps/',
+    instructions: [
+      '1. Go to https://developers.pinterest.com/',
+      '2. Create a new app',
+      '3. Request access to required scopes',
+      '4. Generate an access token in the app dashboard',
+      '5. Copy the access token',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '10 minutes',
+  },
+
+  // ========== AI PROVIDERS ==========
+  OPENAI_API_KEY: {
     name: 'OPENAI_API_KEY',
-    category: 'ai' as const,
+    category: 'ai',
     provider: 'OpenAI',
-    description: 'OpenAI API key for GPT models',
+    description: 'OpenAI API key for GPT models (alternative to Gemini)',
+    service: 'studio-api',
+    documentationUrl: 'https://platform.openai.com/api-keys',
+    instructions: [
+      '1. Go to https://platform.openai.com/api-keys',
+      '2. Sign in or create an account',
+      '3. Click "Create new secret key"',
+      '4. Name it (e.g., "tat-life-production")',
+      '5. Copy the key immediately (only shown once!)',
+    ],
+    freeTrialAvailable: false,
+    estimatedSetupTime: '3 minutes',
   },
-  stableDiffusion: {
+
+  SD_API_KEY: {
     name: 'SD_API_KEY',
-    category: 'ai' as const,
-    provider: 'Stable Diffusion',
+    category: 'ai',
+    provider: 'Stability AI',
     description: 'Stable Diffusion API key for image generation',
+    service: 'studio-api',
+    documentationUrl: 'https://platform.stability.ai/account/keys',
+    instructions: [
+      '1. Go to https://platform.stability.ai/',
+      '2. Sign up or log in',
+      '3. Go to Account → API Keys',
+      '4. Click "Create API Key"',
+      '5. Copy the generated key',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '3 minutes',
   },
-  stripe: {
+
+  VERTEX_AI_PROJECT: {
+    name: 'VERTEX_AI_PROJECT',
+    category: 'ai',
+    provider: 'Google Cloud',
+    description: 'Vertex AI project ID for ML models',
+    service: 'explore-api',
+    documentationUrl: 'https://console.cloud.google.com/vertex-ai',
+    instructions: [
+      '1. Go to https://console.cloud.google.com/vertex-ai',
+      '2. Enable Vertex AI API for your project',
+      '3. Your project ID is in the URL or project selector',
+      '4. Use the project ID as the value',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '5 minutes',
+  },
+
+  // ========== SELF-HOSTED AI ==========
+  CUSTOM_LLM_URL: {
+    name: 'CUSTOM_LLM_URL',
+    category: 'ai',
+    provider: 'Self-hosted',
+    description: 'URL for self-hosted LLM (Railway, RunPod, etc.)',
+    service: 'studio-api',
+    documentationUrl: 'https://railway.app/new',
+    instructions: [
+      '1. Deploy an OpenAI-compatible LLM to Railway/RunPod',
+      '2. Options: Ollama, vLLM, LocalAI, text-generation-webui',
+      '3. Get the deployed URL (e.g., https://your-app.up.railway.app)',
+      '4. Ensure /v1/chat/completions endpoint is working',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '30 minutes',
+  },
+
+  CUSTOM_LLM_API_KEY: {
+    name: 'CUSTOM_LLM_API_KEY',
+    category: 'ai',
+    provider: 'Self-hosted',
+    description: 'API key for self-hosted LLM (if required)',
+    service: 'studio-api',
+    documentationUrl: 'https://railway.app/new',
+    instructions: [
+      '1. Generate a secure random API key',
+      '2. Configure your LLM server to require this key',
+      '3. Set as Authorization: Bearer <key>',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '2 minutes',
+  },
+
+  CUSTOM_IMAGE_URL: {
+    name: 'CUSTOM_IMAGE_URL',
+    category: 'ai',
+    provider: 'Self-hosted',
+    description: 'URL for self-hosted image generation (Stable Diffusion, etc.)',
+    service: 'studio-api',
+    documentationUrl: 'https://github.com/AUTOMATIC1111/stable-diffusion-webui',
+    instructions: [
+      '1. Deploy SD WebUI (Automatic1111) to Railway/RunPod',
+      '2. Enable --api flag in launch arguments',
+      '3. Get the deployed URL',
+      '4. Test with /sdapi/v1/txt2img endpoint',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '45 minutes',
+  },
+
+  CUSTOM_IMAGE_API_KEY: {
+    name: 'CUSTOM_IMAGE_API_KEY',
+    category: 'ai',
+    provider: 'Self-hosted',
+    description: 'API key for self-hosted image generation (if required)',
+    service: 'studio-api',
+    documentationUrl: 'https://github.com/AUTOMATIC1111/stable-diffusion-webui',
+    instructions: [
+      '1. Configure authentication on your SD server',
+      '2. Generate a secure API key',
+      '3. Add to your deployment environment',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '5 minutes',
+  },
+
+  // ========== BUSINESS INTEGRATIONS ==========
+  STRIPE_SECRET_KEY: {
     name: 'STRIPE_SECRET_KEY',
-    category: 'payment' as const,
+    category: 'payment',
     provider: 'Stripe',
     description: 'Stripe secret key for payment processing',
+    service: 'studio-api',
+    documentationUrl: 'https://dashboard.stripe.com/apikeys',
+    instructions: [
+      '1. Go to https://dashboard.stripe.com/apikeys',
+      '2. Sign up or log in to Stripe',
+      '3. Toggle "Test mode" for development keys',
+      '4. Copy the "Secret key" (starts with sk_test_ or sk_live_)',
+      '5. Never expose this key in client-side code!',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '5 minutes',
   },
-  sendgrid: {
+
+  STRIPE_PUBLISHABLE_KEY: {
+    name: 'STRIPE_PUBLISHABLE_KEY',
+    category: 'payment',
+    provider: 'Stripe',
+    description: 'Stripe publishable key for client-side',
+    service: 'tatlife-app',
+    documentationUrl: 'https://dashboard.stripe.com/apikeys',
+    instructions: [
+      '1. Go to https://dashboard.stripe.com/apikeys',
+      '2. Copy the "Publishable key" (starts with pk_test_ or pk_live_)',
+      '3. This key is safe to include in client apps',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '1 minute',
+  },
+
+  SENDGRID_API_KEY: {
     name: 'SENDGRID_API_KEY',
-    category: 'api' as const,
+    category: 'api',
     provider: 'SendGrid',
-    description: 'SendGrid API key for email delivery',
+    description: 'SendGrid API key for transactional emails',
+    service: 'studio-api',
+    documentationUrl: 'https://app.sendgrid.com/settings/api_keys',
+    instructions: [
+      '1. Go to https://app.sendgrid.com/settings/api_keys',
+      '2. Sign up for a free account (100 emails/day free)',
+      '3. Click "Create API Key"',
+      '4. Select "Full Access" or "Restricted Access" with Mail Send',
+      '5. Copy the key (only shown once!)',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '5 minutes',
   },
-  twilio: {
-    name: 'TWILIO_AUTH_TOKEN',
-    category: 'api' as const,
+
+  TWILIO_ACCOUNT_SID: {
+    name: 'TWILIO_ACCOUNT_SID',
+    category: 'api',
     provider: 'Twilio',
-    description: 'Twilio auth token for SMS',
+    description: 'Twilio Account SID for SMS notifications',
+    service: 'studio-api',
+    documentationUrl: 'https://console.twilio.com/',
+    instructions: [
+      '1. Go to https://console.twilio.com/',
+      '2. Sign up for a free trial',
+      '3. Find Account SID on the dashboard',
+      '4. Copy the Account SID (starts with AC)',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '5 minutes',
+  },
+
+  TWILIO_AUTH_TOKEN: {
+    name: 'TWILIO_AUTH_TOKEN',
+    category: 'api',
+    provider: 'Twilio',
+    description: 'Twilio Auth Token for SMS authentication',
+    service: 'studio-api',
+    documentationUrl: 'https://console.twilio.com/',
+    instructions: [
+      '1. Go to your Twilio dashboard',
+      '2. Click "Show" next to Auth Token',
+      '3. Copy the Auth Token',
+    ],
+    freeTrialAvailable: true,
+    estimatedSetupTime: '1 minute',
   },
 };
