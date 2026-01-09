@@ -2,10 +2,11 @@
  * AI Provider Interface
  * 
  * Abstract interface for AI providers to enable swapping between:
- * - Google Gemini (text generation)
+ * - Google Gemini (text + image generation)
  * - ComfyUI (image generation)
  * - Stable Diffusion (image generation)
  * - Custom self-hosted LLMs (Railway, RunPod, etc.)
+ * - Custom self-hosted Image Gen (Railway, RunPod, etc.)
  */
 
 export interface AIProviderConfig {
@@ -19,12 +20,15 @@ export interface AIProviderConfig {
 
 export type AIProviderType = 
   | 'gemini' 
+  | 'gemini-imagen'
   | 'openai' 
   | 'comfyui' 
   | 'stable-diffusion' 
   | 'custom-llm'
+  | 'custom-image'
   | 'replicate'
-  | 'runway';
+  | 'runway'
+  | 'huggingface';
 
 export interface TextGenerationRequest {
   prompt: string;

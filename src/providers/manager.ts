@@ -16,18 +16,22 @@ import {
   GeneratedImage
 } from './types';
 import { GeminiProvider } from './gemini';
+import { GeminiImageProvider } from './gemini-image';
 import { ComfyUIProvider } from './comfyui';
 import { StableDiffusionProvider } from './stable-diffusion';
 import { CustomLLMProvider } from './custom-llm';
+import { CustomImageProvider } from './custom-image';
 
 interface ProviderManagerConfig {
   defaultTextProvider?: AIProviderType;
   defaultImageProvider?: AIProviderType;
   providers: {
     gemini?: { apiKey: string; model?: string };
+    geminiImage?: { apiKey: string; model?: string };
     comfyui?: { baseUrl: string; timeout?: number };
     stableDiffusion?: { baseUrl: string; apiKey?: string; model?: string };
     customLlm?: { baseUrl: string; apiKey?: string; model?: string };
+    customImage?: { baseUrl: string; apiKey?: string; model?: string; apiFormat?: 'openai' | 'a1111' | 'custom' };
   };
 }
 
@@ -74,6 +78,32 @@ export class AIProviderManager {
         model: config.providers.customLlm.model,
       });
       this.textProviders.set('custom-llm', provider);
+    }
+    
+    // Gemini for image generation (Imagen)
+    if (config.providers.geminiImage) {
+      const provider = new GeminiImageProvider({
+        apiKey: config.providers.geminiImage.apiKey,
+        model: config.providers.geminiImage.model,
+      });
+      this.imageProviders.set('gemini-imagen', provider);
+    } else if (config.providers.gemini) {
+      // If only gemini text is configured, also add it for images
+      const provider = new GeminiImageProvider({
+        apiKey: config.providers.gemini.apiKey,
+      });
+      this.imageProviders.set('gemini-imagen', provider);
+    }
+    
+    // Custom self-hosted image generation (Railway, RunPod, etc.)
+    if (config.providers.customImage) {
+      const provider = new CustomImageProvider({
+        baseUrl: config.providers.customImage.baseUrl,
+        apiKey: config.providers.customImage.apiKey,
+        model: config.providers.customImage.model,
+        apiFormat: config.providers.customImage.apiFormat,
+      });
+      this.imageProviders.set('custom-image', provider);
     }
   }
   
@@ -344,6 +374,24 @@ export function createProviderManagerFromEnv(): AIProviderManager {
       baseUrl: process.env.CUSTOM_LLM_URL,
       apiKey: process.env.CUSTOM_LLM_API_KEY,
       model: process.env.CUSTOM_LLM_MODEL,
+    };
+  }
+  
+  // Gemini for image generation (Imagen)
+  if (process.env.GEMINI_IMAGE_ENABLED === 'true' && process.env.GEMINI_API_KEY) {
+    config.providers.geminiImage = {
+      apiKey: process.env.GEMINI_API_KEY,
+      model: process.env.GEMINI_IMAGE_MODEL,
+    };
+  }
+  
+  // Custom Image Generation (Railway, RunPod, etc.)
+  if (process.env.CUSTOM_IMAGE_URL) {
+    config.providers.customImage = {
+      baseUrl: process.env.CUSTOM_IMAGE_URL,
+      apiKey: process.env.CUSTOM_IMAGE_API_KEY,
+      model: process.env.CUSTOM_IMAGE_MODEL,
+      apiFormat: (process.env.CUSTOM_IMAGE_FORMAT as 'openai' | 'a1111' | 'custom') || 'openai',
     };
   }
   
