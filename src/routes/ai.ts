@@ -1,16 +1,26 @@
 /**
  * AI Design Generator Routes
  * 
- * Ported from Tattoo Workshop and enhanced for Tat-Life
- * Uses Google Gemini for tattoo design suggestions and generation
+ * Multi-provider AI support for tattoo design generation
+ * Supports: Gemini, ComfyUI, Stable Diffusion, Custom LLMs
  */
 
 import { Router, Request, Response } from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getFirestore } from '../config/firebase';
 import { z } from 'zod';
+import { createProviderManagerFromEnv, AIProviderManager } from '../providers';
 
 const router = Router();
+
+// Lazy-load provider manager
+let providerManager: AIProviderManager | null = null;
+
+function getProviderManager(): AIProviderManager {
+  if (!providerManager) {
+    providerManager = createProviderManagerFromEnv();
+  }
+  return providerManager;
+}
 
 // Validation schemas
 const generateDesignSchema = z.object({
@@ -20,6 +30,21 @@ const generateDesignSchema = z.object({
   size: z.enum(['small', 'medium', 'large', 'extra-large']).optional(),
   colorPreference: z.enum(['black-grey', 'color', 'watercolor', 'no-preference']).optional(),
   additionalNotes: z.string().optional(),
+  generateImage: z.boolean().optional(),
+  textProvider: z.enum(['gemini', 'custom-llm', 'openai']).optional(),
+  imageProvider: z.enum(['comfyui', 'stable-diffusion', 'replicate']).optional(),
+});
+
+const generateImageSchema = z.object({
+  prompt: z.string().min(5, 'Prompt must be at least 5 characters'),
+  negativePrompt: z.string().optional(),
+  style: z.string().optional(),
+  width: z.number().min(256).max(1024).optional(),
+  height: z.number().min(256).max(1024).optional(),
+  steps: z.number().min(10).max(50).optional(),
+  cfgScale: z.number().min(1).max(20).optional(),
+  seed: z.number().optional(),
+  provider: z.enum(['comfyui', 'stable-diffusion', 'replicate']).optional(),
 });
 
 const styleRecommendationSchema = z.object({
@@ -30,16 +55,6 @@ const styleRecommendationSchema = z.object({
     meaning: z.string().optional(),
   }).optional(),
 });
-
-// Initialize Gemini AI
-function getGeminiModel() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY not configured');
-  }
-  const genAI = new GoogleGenerativeAI(apiKey);
-  return genAI.getGenerativeModel({ model: 'gemini-pro' });
-}
 
 /**
  * POST /api/ai/generate-design
@@ -55,44 +70,35 @@ router.post('/generate-design', async (req: Request, res: Response) => {
       });
     }
 
-    const { description, style, placement, size, colorPreference, additionalNotes } = validation.data;
+    const { 
+      description, 
+      style, 
+      placement, 
+      size, 
+      colorPreference, 
+      additionalNotes,
+      generateImage 
+    } = validation.data;
 
-    const model = getGeminiModel();
-
-    const prompt = `As a professional tattoo artist with 20+ years of experience, create a detailed tattoo design suggestion based on the following:
-
-**Client Request:** ${description}
-${style ? `**Preferred Style:** ${style}` : ''}
-${placement ? `**Body Placement:** ${placement}` : ''}
-${size ? `**Size:** ${size}` : ''}
-${colorPreference ? `**Color Preference:** ${colorPreference}` : ''}
-${additionalNotes ? `**Additional Notes:** ${additionalNotes}` : ''}
-
-Please provide a comprehensive design suggestion including:
-
-1. **Design Concept** - A vivid description of the tattoo design
-2. **Visual Elements** - Specific imagery, symbols, and motifs to include
-3. **Style Recommendations** - Best tattoo styles that would work (e.g., Traditional, Neo-Traditional, Blackwork, Realism, Japanese, Geometric, Watercolor, etc.)
-4. **Composition & Layout** - How elements should be arranged
-5. **Size & Placement Tips** - Optimal sizing and placement considerations
-6. **Color Palette** - Recommended colors or shading approach
-7. **Technical Considerations** - Line weights, shading techniques, aging considerations
-8. **Symbolism & Meaning** - Cultural or personal significance of elements
-9. **Estimated Session Time** - Rough estimate for completion
-10. **Aftercare Considerations** - Special care based on placement/style
-
-Format your response in a clear, organized manner that both the client and artist can reference.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const designSuggestion = response.text();
+    const manager = getProviderManager();
+    
+    const result = await manager.generateTattooDesign({
+      description,
+      style,
+      placement,
+      size,
+      colorPreference,
+      additionalNotes,
+      generateImage,
+    });
 
     // Log the generation for analytics
     const db = getFirestore();
     await db.collection('ai_generations').add({
       type: 'design',
       input: validation.data,
-      outputLength: designSuggestion.length,
+      providers: result.providers,
+      hasImage: !!result.images,
       createdAt: new Date().toISOString(),
       userId: req.headers['x-user-id'] || 'anonymous',
     });
@@ -100,9 +106,11 @@ Format your response in a clear, organized manner that both the client and artis
     res.json({
       success: true,
       design: {
-        suggestion: designSuggestion,
+        suggestion: result.suggestion,
+        images: result.images,
         input: validation.data,
-        generatedAt: new Date().toISOString(),
+        providers: result.providers,
+        generatedAt: result.generatedAt,
       }
     });
 
@@ -110,6 +118,58 @@ Format your response in a clear, organized manner that both the client and artis
     console.error('AI Design Generation Error:', error);
     res.status(500).json({ 
       error: 'Failed to generate design',
+      message: error.message 
+    });
+  }
+});
+
+/**
+ * POST /api/ai/generate-image
+ * Generate a tattoo design image
+ */
+router.post('/generate-image', async (req: Request, res: Response) => {
+  try {
+    const validation = generateImageSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ 
+        error: 'Invalid input', 
+        details: validation.error.errors 
+      });
+    }
+
+    const manager = getProviderManager();
+    
+    const images = await manager.generateImage({
+      prompt: validation.data.prompt,
+      negativePrompt: validation.data.negativePrompt,
+      style: validation.data.style,
+      width: validation.data.width,
+      height: validation.data.height,
+      steps: validation.data.steps,
+      cfgScale: validation.data.cfgScale,
+      seed: validation.data.seed,
+    });
+
+    // Log generation
+    const db = getFirestore();
+    await db.collection('ai_generations').add({
+      type: 'image',
+      input: validation.data,
+      imageCount: images.length,
+      createdAt: new Date().toISOString(),
+      userId: req.headers['x-user-id'] || 'anonymous',
+    });
+
+    res.json({
+      success: true,
+      images,
+      generatedAt: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    console.error('Image Generation Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate image',
       message: error.message 
     });
   }
@@ -129,54 +189,10 @@ router.post('/style-recommendation', async (req: Request, res: Response) => {
       });
     }
 
-    const { concept, preferences } = validation.data;
-
-    const model = getGeminiModel();
-
-    const prompt = `As a tattoo style expert, recommend the best tattoo styles for the following concept:
-
-**Concept:** ${concept}
-${preferences?.boldness ? `**Boldness Preference:** ${preferences.boldness}` : ''}
-${preferences?.complexity ? `**Complexity Preference:** ${preferences.complexity}` : ''}
-${preferences?.meaning ? `**Intended Meaning:** ${preferences.meaning}` : ''}
-
-Provide your top 5 style recommendations in this JSON format:
-{
-  "recommendations": [
-    {
-      "style": "Style Name",
-      "matchScore": 95,
-      "description": "Brief description of why this style fits",
-      "pros": ["advantage 1", "advantage 2"],
-      "cons": ["consideration 1"],
-      "exampleArtists": ["Famous Artist 1", "Famous Artist 2"],
-      "estimatedCost": "$$-$$$",
-      "healingTime": "2-3 weeks"
-    }
-  ],
-  "generalAdvice": "Overall recommendation summary"
-}
-
-Return ONLY valid JSON, no additional text.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-
-    // Try to parse as JSON
-    let recommendations;
-    try {
-      // Extract JSON from response (handle markdown code blocks)
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        recommendations = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (parseError) {
-      // Return raw text if JSON parsing fails
-      recommendations = { rawResponse: text };
-    }
+    const { concept } = validation.data;
+    const manager = getProviderManager();
+    
+    const recommendations = await manager.getStyleRecommendations(concept);
 
     res.json({
       success: true,
@@ -206,9 +222,15 @@ router.post('/placement-advice', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Design description is required' });
     }
 
-    const model = getGeminiModel();
+    const manager = getProviderManager();
+    const textProvider = manager.getTextProvider();
+    
+    if (!textProvider || !textProvider.generateText) {
+      return res.status(503).json({ error: 'No text provider available' });
+    }
 
-    const prompt = `As a tattoo placement specialist, provide detailed placement advice for:
+    const response = await textProvider.generateText({
+      prompt: `As a tattoo placement specialist, provide detailed placement advice for:
 
 **Design:** ${design}
 ${bodyType ? `**Body Type:** ${bodyType}` : ''}
@@ -233,27 +255,25 @@ Provide advice in this JSON format:
   "generalTips": "Overall placement advice"
 }
 
-Return ONLY valid JSON.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+Return ONLY valid JSON.`,
+    });
 
     let advice;
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         advice = JSON.parse(jsonMatch[0]);
       } else {
-        advice = { rawResponse: text };
+        advice = { rawResponse: response.text };
       }
     } catch {
-      advice = { rawResponse: text };
+      advice = { rawResponse: response.text };
     }
 
     res.json({
       success: true,
       advice,
+      provider: textProvider.name,
       generatedAt: new Date().toISOString(),
     });
 
@@ -278,9 +298,15 @@ router.post('/estimate-cost', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Design and size are required' });
     }
 
-    const model = getGeminiModel();
+    const manager = getProviderManager();
+    const textProvider = manager.getTextProvider();
+    
+    if (!textProvider || !textProvider.generateText) {
+      return res.status(503).json({ error: 'No text provider available' });
+    }
 
-    const prompt = `As a tattoo pricing expert, estimate the cost for:
+    const response = await textProvider.generateText({
+      prompt: `As a tattoo pricing expert, estimate the cost for:
 
 **Design:** ${design}
 **Style:** ${style || 'Not specified'}
@@ -316,27 +342,25 @@ Provide estimate in this JSON format:
   ]
 }
 
-Return ONLY valid JSON.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+Return ONLY valid JSON.`,
+    });
 
     let estimate;
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         estimate = JSON.parse(jsonMatch[0]);
       } else {
-        estimate = { rawResponse: text };
+        estimate = { rawResponse: response.text };
       }
     } catch {
-      estimate = { rawResponse: text };
+      estimate = { rawResponse: response.text };
     }
 
     res.json({
       success: true,
       estimate,
+      provider: textProvider.name,
       generatedAt: new Date().toISOString(),
     });
 
@@ -361,33 +385,9 @@ router.post('/chat', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    const model = getGeminiModel();
-
-    // Build conversation context
-    let contextPrompt = `You are TatBot, an expert AI tattoo consultant for Tat-Life app. You have extensive knowledge about:
-- Tattoo styles (Traditional, Japanese, Blackwork, Realism, Watercolor, etc.)
-- Design concepts and symbolism
-- Placement and sizing recommendations
-- Aftercare and healing
-- Finding the right artist
-- Tattoo culture and history
-
-Be helpful, friendly, and professional. If asked about specific medical advice, recommend consulting a dermatologist.
-
-`;
-
-    if (conversationHistory && Array.isArray(conversationHistory)) {
-      contextPrompt += 'Previous conversation:\n';
-      for (const msg of conversationHistory.slice(-5)) {
-        contextPrompt += `${msg.role}: ${msg.content}\n`;
-      }
-    }
-
-    contextPrompt += `\nUser: ${message}\n\nAssistant:`;
-
-    const result = await model.generateContent(contextPrompt);
-    const response = await result.response;
-    const reply = response.text();
+    const manager = getProviderManager();
+    
+    const reply = await manager.chat(message, conversationHistory);
 
     res.json({
       success: true,
@@ -405,19 +405,46 @@ Be helpful, friendly, and professional. If asked about specific medical advice, 
 });
 
 /**
+ * GET /api/ai/providers
+ * List available AI providers
+ */
+router.get('/providers', async (req: Request, res: Response) => {
+  try {
+    const manager = getProviderManager();
+    const providers = manager.getAvailableProviders();
+
+    res.json({
+      success: true,
+      providers,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({ 
+      error: 'Failed to get providers',
+      message: error.message 
+    });
+  }
+});
+
+/**
  * GET /api/ai/status
  * Check AI service status
  */
 router.get('/status', async (req: Request, res: Response) => {
   try {
-    const hasApiKey = !!process.env.GEMINI_API_KEY;
-    
+    const manager = getProviderManager();
+    const providers = manager.getAvailableProviders();
+    const health = await manager.checkHealth();
+
     res.json({
-      status: hasApiKey ? 'operational' : 'not-configured',
-      provider: 'Google Gemini',
-      model: 'gemini-pro',
+      status: Object.values(health).some(h => h.healthy) ? 'operational' : 'degraded',
+      providers: {
+        available: providers,
+        health,
+      },
       features: [
         'design-generation',
+        'image-generation',
         'style-recommendation',
         'placement-advice',
         'cost-estimation',
@@ -429,6 +456,31 @@ router.get('/status', async (req: Request, res: Response) => {
     res.status(500).json({ 
       status: 'error',
       message: error.message 
+    });
+  }
+});
+
+/**
+ * GET /api/ai/health
+ * Health check for all providers
+ */
+router.get('/health', async (req: Request, res: Response) => {
+  try {
+    const manager = getProviderManager();
+    const health = await manager.checkHealth();
+
+    const allHealthy = Object.values(health).every(h => h.healthy);
+    const anyHealthy = Object.values(health).some(h => h.healthy);
+
+    res.status(allHealthy ? 200 : anyHealthy ? 207 : 503).json({
+      success: anyHealthy,
+      providers: health,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(503).json({ 
+      success: false,
+      error: error.message 
     });
   }
 });
