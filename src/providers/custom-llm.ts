@@ -141,10 +141,10 @@ export class CustomLLMProvider implements IAIProvider {
         throw new Error(`Custom LLM API error: ${response.status} - ${error}`);
       }
       
-      return this.parseResponse(await retryResponse.json());
+      return this.parseResponse(await retryResponse.json() as ChatCompletionResponse);
     }
     
-    return this.parseResponse(await response.json());
+    return this.parseResponse(await response.json() as ChatCompletionResponse);
   }
   
   private parseResponse(data: ChatCompletionResponse): TextGenerationResponse {
@@ -175,7 +175,7 @@ export class CustomLLMProvider implements IAIProvider {
         return [this.model];
       }
       
-      const data = await response.json();
+      const data = await response.json() as any;
       return data.data?.map((m: any) => m.id) || [this.model];
     } catch {
       return [this.model];
@@ -191,7 +191,7 @@ export class CustomLLMProvider implements IAIProvider {
       });
       
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as any;
         const modelCount = data.data?.length || 0;
         return {
           healthy: true,

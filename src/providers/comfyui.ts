@@ -57,7 +57,7 @@ export class ComfyUIProvider implements IAIProvider {
       throw new Error(`ComfyUI queue failed: ${queueResponse.statusText}`);
     }
     
-    const queueData = await queueResponse.json();
+    const queueData = await queueResponse.json() as any;
     const promptId = queueData.prompt_id;
     
     // Poll for completion
@@ -188,7 +188,7 @@ export class ComfyUIProvider implements IAIProvider {
       });
       
       if (historyResponse.ok) {
-        const history = await historyResponse.json();
+        const history = await historyResponse.json() as any;
         
         if (history[promptId] && history[promptId].outputs) {
           const outputs = history[promptId].outputs;

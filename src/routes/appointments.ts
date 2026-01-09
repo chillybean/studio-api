@@ -75,20 +75,20 @@ router.get('/', async (req: Request, res: Response) => {
 
     const snapshot = await query.get();
     
-    let appointments = snapshot.docs.map(doc => ({
+    let appointments = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
 
     // Additional client-side filters
     if (status) {
-      appointments = appointments.filter(a => a.status === status);
+      appointments = appointments.filter((a: any) => a.status === status);
     }
     if (artistId) {
-      appointments = appointments.filter(a => a.artistId === artistId);
+      appointments = appointments.filter((a: any) => a.artistId === artistId);
     }
     if (customerId) {
-      appointments = appointments.filter(a => a.customerId === customerId);
+      appointments = appointments.filter((a: any) => a.customerId === customerId);
     }
 
     res.json({
@@ -138,7 +138,7 @@ router.get('/calendar/:year/:month', async (req: Request, res: Response) => {
 
     // Group by date
     const calendarData: Record<string, any[]> = {};
-    appointments.forEach(apt => {
+    appointments.forEach((apt: any) => {
       const date = apt.date;
       if (!calendarData[date]) {
         calendarData[date] = [];
@@ -491,7 +491,7 @@ router.get('/availability/:date', async (req: Request, res: Response) => {
     }
 
     const snapshot = await query.get();
-    const bookedSlots = snapshot.docs.map(doc => ({
+    const bookedSlots = snapshot.docs.map((doc: any) => ({
       start: doc.data().startTime,
       end: doc.data().endTime || doc.data().startTime,
     }));
@@ -502,7 +502,7 @@ router.get('/availability/:date', async (req: Request, res: Response) => {
     
     let currentTime = workingHours.start;
     while (currentTime < workingHours.end) {
-      const isBooked = bookedSlots.some(slot => 
+      const isBooked = bookedSlots.some((slot: any) => 
         currentTime >= slot.start && currentTime < slot.end
       );
       

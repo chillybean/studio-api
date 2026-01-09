@@ -67,7 +67,7 @@ export class GeminiImageProvider implements IAIProvider {
       throw new Error(`Gemini Imagen API error: ${response.status} - ${error}`);
     }
     
-    const data = await response.json();
+    const data = await response.json() as any;
     
     const images: GeneratedImage[] = [];
     

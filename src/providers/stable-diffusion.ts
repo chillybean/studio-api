@@ -104,7 +104,7 @@ export class StableDiffusionProvider implements IAIProvider {
       throw new Error(`Stable Diffusion API error: ${response.status} - ${error}`);
     }
     
-    const data = await response.json();
+    const data = await response.json() as any;
     
     const images: GeneratedImage[] = data.images.map((base64: string) => ({
       base64: `data:image/png;base64,${base64}`,
@@ -165,7 +165,7 @@ export class StableDiffusionProvider implements IAIProvider {
       throw new Error('Failed to fetch models');
     }
     
-    const models = await response.json();
+    const models = await response.json() as any;
     return models.map((m: any) => m.model_name || m.title);
   }
   
@@ -181,7 +181,7 @@ export class StableDiffusionProvider implements IAIProvider {
       throw new Error('Failed to fetch samplers');
     }
     
-    const samplers = await response.json();
+    const samplers = await response.json() as any;
     return samplers.map((s: any) => s.name);
   }
   
@@ -192,7 +192,7 @@ export class StableDiffusionProvider implements IAIProvider {
       });
       
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as any;
         return {
           healthy: true,
           message: `Stable Diffusion operational (progress: ${Math.round(data.progress * 100)}%)`,

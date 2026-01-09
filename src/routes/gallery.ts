@@ -50,20 +50,20 @@ router.get('/', async (req: Request, res: Response) => {
 
     const snapshot = await query.get();
     
-    let items = snapshot.docs.map(doc => ({
+    let items = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
 
     // Client-side filters
     if (style) {
-      items = items.filter(i => i.style === style);
+      items = items.filter((i: any) => i.style === style);
     }
     if (artistId) {
-      items = items.filter(i => i.artistId === artistId);
+      items = items.filter((i: any) => i.artistId === artistId);
     }
     if (featured === 'true') {
-      items = items.filter(i => i.isFeatured === true);
+      items = items.filter((i: any) => i.isFeatured === true);
     }
 
     res.json({

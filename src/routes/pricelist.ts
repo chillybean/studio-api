@@ -53,22 +53,22 @@ router.get('/', async (req: Request, res: Response) => {
 
     const snapshot = await query.get();
     
-    let services = snapshot.docs.map(doc => ({
+    let services = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
 
     // Filter
     if (category) {
-      services = services.filter(s => s.category === category);
+      services = services.filter((s: any) => s.category === category);
     }
     if (activeOnly === 'true') {
-      services = services.filter(s => s.isActive !== false);
+      services = services.filter((s: any) => s.isActive !== false);
     }
 
     // Group by category
     const grouped: Record<string, any[]> = {};
-    services.forEach(service => {
+    services.forEach((service: any) => {
       const cat = service.category || 'other';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(service);

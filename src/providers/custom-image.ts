@@ -102,7 +102,7 @@ export class CustomImageProvider implements IAIProvider {
       throw new Error(`Image API error: ${response.status} - ${error}`);
     }
     
-    const data = await response.json();
+    const data = await response.json() as any;
     
     const images: GeneratedImage[] = data.data.map((img: any) => ({
       base64: img.b64_json ? `data:image/png;base64,${img.b64_json}` : undefined,
@@ -149,7 +149,7 @@ export class CustomImageProvider implements IAIProvider {
       throw new Error(`A1111 API error: ${response.status} - ${error}`);
     }
     
-    const data = await response.json();
+    const data = await response.json() as any;
     
     const images: GeneratedImage[] = data.images.map((base64: string) => ({
       base64: `data:image/png;base64,${base64}`,
@@ -224,7 +224,7 @@ export class CustomImageProvider implements IAIProvider {
       throw new Error(`Custom image API error: ${lastError}`);
     }
     
-    const data = await response.json();
+    const data = await response.json() as any;
     
     // Handle various response formats
     const images: GeneratedImage[] = [];

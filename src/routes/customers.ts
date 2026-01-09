@@ -54,7 +54,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     const snapshot = await query.get();
     
-    let customers = snapshot.docs.map(doc => ({
+    let customers = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data()
     }));
@@ -62,7 +62,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Client-side search (Firestore doesn't support full-text search)
     if (search) {
       const searchLower = (search as string).toLowerCase();
-      customers = customers.filter(c => 
+      customers = customers.filter((c: any) => 
         c.name?.toLowerCase().includes(searchLower) ||
         c.email?.toLowerCase().includes(searchLower) ||
         c.phone?.includes(searchLower)
