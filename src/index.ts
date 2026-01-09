@@ -24,6 +24,7 @@ import pricelistRoutes from './routes/pricelist';
 import galleryRoutes from './routes/gallery';
 import analyticsRoutes from './routes/analytics';
 import settingsRoutes from './routes/settings';
+import secretsRoutes from './routes/secrets';
 
 // Load environment variables
 dotenv.config();
@@ -76,6 +77,7 @@ app.use('/api/pricelist', pricelistRoutes);
 app.use('/api/gallery', galleryRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/secrets', secretsRoutes);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

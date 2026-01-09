@@ -397,3 +397,80 @@ export function createProviderManagerFromEnv(): AIProviderManager {
   
   return new AIProviderManager(config);
 }
+
+/**
+ * Create manager using Google Cloud Secret Manager
+ * Securely fetches secrets at runtime
+ */
+export async function createProviderManagerFromSecrets(): Promise<AIProviderManager> {
+  // Lazy import to avoid circular dependencies
+  const { getSecret } = await import('../config/secrets');
+  
+  const config: ProviderManagerConfig = {
+    defaultTextProvider: ((await getSecret('DEFAULT_TEXT_PROVIDER')) as AIProviderType) || 'gemini',
+    defaultImageProvider: ((await getSecret('DEFAULT_IMAGE_PROVIDER')) as AIProviderType) || 'stable-diffusion',
+    providers: {},
+  };
+  
+  // Gemini
+  const geminiKey = await getSecret('GEMINI_API_KEY');
+  if (geminiKey) {
+    config.providers.gemini = {
+      apiKey: geminiKey,
+      model: await getSecret('GEMINI_MODEL') || undefined,
+    };
+  }
+  
+  // ComfyUI
+  const comfyuiUrl = await getSecret('COMFYUI_URL');
+  if (comfyuiUrl) {
+    const timeout = await getSecret('COMFYUI_TIMEOUT');
+    config.providers.comfyui = {
+      baseUrl: comfyuiUrl,
+      timeout: timeout ? parseInt(timeout) : undefined,
+    };
+  }
+  
+  // Stable Diffusion
+  const sdUrl = await getSecret('SD_API_URL');
+  if (sdUrl) {
+    config.providers.stableDiffusion = {
+      baseUrl: sdUrl,
+      apiKey: await getSecret('SD_API_KEY') || undefined,
+      model: await getSecret('SD_MODEL') || undefined,
+    };
+  }
+  
+  // Custom LLM
+  const customLlmUrl = await getSecret('CUSTOM_LLM_URL');
+  if (customLlmUrl) {
+    config.providers.customLlm = {
+      baseUrl: customLlmUrl,
+      apiKey: await getSecret('CUSTOM_LLM_API_KEY') || undefined,
+      model: await getSecret('CUSTOM_LLM_MODEL') || undefined,
+    };
+  }
+  
+  // Gemini Imagen
+  const geminiImageEnabled = await getSecret('GEMINI_IMAGE_ENABLED');
+  if (geminiImageEnabled === 'true' && geminiKey) {
+    config.providers.geminiImage = {
+      apiKey: geminiKey,
+      model: await getSecret('GEMINI_IMAGE_MODEL') || undefined,
+    };
+  }
+  
+  // Custom Image
+  const customImageUrl = await getSecret('CUSTOM_IMAGE_URL');
+  if (customImageUrl) {
+    const format = await getSecret('CUSTOM_IMAGE_FORMAT');
+    config.providers.customImage = {
+      baseUrl: customImageUrl,
+      apiKey: await getSecret('CUSTOM_IMAGE_API_KEY') || undefined,
+      model: await getSecret('CUSTOM_IMAGE_MODEL') || undefined,
+      apiFormat: (format as 'openai' | 'a1111' | 'custom') || 'openai',
+    };
+  }
+  
+  return new AIProviderManager(config);
+}
