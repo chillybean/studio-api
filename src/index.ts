@@ -44,6 +44,7 @@ app.use(express.urlencoded({ extended: true }));
 // CORS configuration
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
   'http://localhost:3000',
+  'http://localhost:5000',
   'https://tat-life.web.app',
   'https://tat-life.firebaseapp.com'
 ];
