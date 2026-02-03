@@ -11,10 +11,11 @@ const router = Router();
 const db = () => getFirestore();
 
 /**
+ * GET /api/analytics (root endpoint - same as /overview)
  * GET /api/analytics/overview
  * Get studio dashboard overview
  */
-router.get('/overview', async (req: Request, res: Response) => {
+const getAnalyticsOverview = async (req: Request, res: Response) => {
   try {
     const studioId = req.headers['x-studio-id'] as string;
     if (!studioId) {
@@ -97,7 +98,11 @@ router.get('/overview', async (req: Request, res: Response) => {
     console.error('Analytics Overview Error:', error);
     res.status(500).json({ error: 'Failed to get analytics', message: error.message });
   }
-});
+};
+
+// Register routes - both root and /overview point to the same handler
+router.get('/', getAnalyticsOverview);
+router.get('/overview', getAnalyticsOverview);
 
 /**
  * GET /api/analytics/revenue
