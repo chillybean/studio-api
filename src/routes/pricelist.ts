@@ -12,6 +12,9 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 const db = () => getFirestore();
 
+// Analytics threshold for "popular" services
+const POPULAR_THRESHOLD = 10;
+
 // Validation schemas
 const serviceSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -33,8 +36,90 @@ const serviceSchema = z.object({
 });
 
 /**
+ * Compute analytics for a service from appointments
+ */
+async function computeServiceAnalytics(studioId: string, serviceId: string) {
+  try {
+    // Get all completed appointments for this service
+    const appointmentsSnapshot = await db()
+      .collection('studios')
+      .doc(studioId)
+      .collection('appointments')
+      .where('serviceId', '==', serviceId)
+      .where('status', '==', 'completed')
+      .get();
+
+    if (appointmentsSnapshot.empty) {
+      return {
+        bookingCount: 0,
+        totalRevenue: 0,
+        avgRating: null,
+        lastBooked: null,
+      };
+    }
+
+    const appointments = appointmentsSnapshot.docs.map(doc => doc.data());
+
+    // Calculate stats
+    const bookingCount = appointments.length;
+    const totalRevenue = appointments.reduce((sum, apt) => {
+      return sum + (apt.finalPrice || apt.estimatedPrice || apt.price || 0);
+    }, 0);
+
+    // Find last booked date
+    const sortedByDate = appointments
+      .map(apt => apt.completedAt || apt.date)
+      .filter(date => date != null)
+      .sort((a, b) => b.localeCompare(a));
+    const lastBooked = sortedByDate[0] || null;
+
+    // Get ratings from reviews (if available)
+    let avgRating = null;
+    try {
+      const reviewsSnapshot = await db()
+        .collection('studios')
+        .doc(studioId)
+        .collection('reviews')
+        .where('serviceId', '==', serviceId)
+        .get();
+
+      if (!reviewsSnapshot.empty) {
+        const ratings = reviewsSnapshot.docs
+          .map(doc => doc.data().rating)
+          .filter(r => typeof r === 'number' && r > 0);
+        
+        if (ratings.length > 0) {
+          avgRating = ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
+        }
+      }
+    } catch (err) {
+      // Reviews collection may not exist, silently continue
+    }
+
+    return {
+      bookingCount,
+      totalRevenue,
+      avgRating,
+      lastBooked,
+    };
+  } catch (error) {
+    console.error(`Analytics computation error for service ${serviceId}:`, error);
+    return {
+      bookingCount: 0,
+      totalRevenue: 0,
+      avgRating: null,
+      lastBooked: null,
+    };
+  }
+}
+
+/**
  * GET /api/pricelist
  * Get all services/prices for a studio
+ * Query params:
+ *   - includeAnalytics=true : Add booking stats and revenue data
+ *   - category : Filter by category
+ *   - activeOnly : true/false (default: true)
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -43,7 +128,7 @@ router.get('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
-    const { category, activeOnly = 'true' } = req.query;
+    const { category, activeOnly = 'true', includeAnalytics = 'false' } = req.query;
 
     let query: any = db()
       .collection('studios')
@@ -57,6 +142,18 @@ router.get('/', async (req: Request, res: Response) => {
       id: doc.id,
       ...doc.data()
     }));
+
+    // Add analytics if requested
+    if (includeAnalytics === 'true') {
+      const analyticsPromises = services.map(async (service: any) => {
+        const analytics = await computeServiceAnalytics(studioId, service.id);
+        return {
+          ...service,
+          ...analytics,
+        };
+      });
+      services = await Promise.all(analyticsPromises);
+    }
 
     // Filter
     if (category) {
@@ -90,6 +187,8 @@ router.get('/', async (req: Request, res: Response) => {
 /**
  * GET /api/pricelist/:id
  * Get a single service
+ * Query params:
+ *   - includeAnalytics=true : Add booking stats and revenue data
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -99,6 +198,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
+    const { includeAnalytics = 'false' } = req.query;
 
     const serviceDoc = await db()
       .collection('studios')
@@ -111,17 +211,157 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Service not found' });
     }
 
+    let service = {
+      id: serviceDoc.id,
+      ...serviceDoc.data()
+    };
+
+    // Add analytics if requested
+    if (includeAnalytics === 'true') {
+      const analytics = await computeServiceAnalytics(studioId, id);
+      service = { ...service, ...analytics };
+    }
+
     res.json({
       success: true,
-      service: {
-        id: serviceDoc.id,
-        ...serviceDoc.data()
-      }
+      service
     });
 
   } catch (error: any) {
     console.error('Get Service Error:', error);
     res.status(500).json({ error: 'Failed to get service', message: error.message });
+  }
+});
+
+/**
+ * GET /api/pricelist/:id/stats
+ * Get detailed analytics for a service
+ */
+router.get('/:id/stats', async (req: Request, res: Response) => {
+  try {
+    const studioId = req.headers['x-studio-id'] as string;
+    if (!studioId) {
+      return res.status(400).json({ error: 'Studio ID is required' });
+    }
+
+    const { id } = req.params;
+
+    // Verify service exists
+    const serviceDoc = await db()
+      .collection('studios')
+      .doc(studioId)
+      .collection('services')
+      .doc(id)
+      .get();
+
+    if (!serviceDoc.exists) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+
+    const service = serviceDoc.data();
+
+    // Get all appointments for this service
+    const appointmentsSnapshot = await db()
+      .collection('studios')
+      .doc(studioId)
+      .collection('appointments')
+      .where('serviceId', '==', id)
+      .get();
+
+    const appointments = appointmentsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    const completedAppointments = appointments.filter(apt => apt.status === 'completed');
+
+    // Basic stats
+    const bookingCount = completedAppointments.length;
+    const totalRevenue = completedAppointments.reduce((sum, apt) => {
+      return sum + (apt.finalPrice || apt.estimatedPrice || apt.price || 0);
+    }, 0);
+
+    // Recent bookings
+    const recentBookings = completedAppointments
+      .sort((a, b) => (b.completedAt || b.date).localeCompare(a.completedAt || a.date))
+      .slice(0, 10)
+      .map(apt => ({
+        id: apt.id,
+        customerName: apt.customerName || 'Unknown',
+        date: apt.date,
+        price: apt.finalPrice || apt.estimatedPrice || apt.price || 0,
+        status: apt.status,
+        completedAt: apt.completedAt,
+      }));
+
+    // Monthly stats (last 6 months)
+    const now = new Date();
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+    
+    const monthlyMap: Record<string, { bookings: number; revenue: number }> = {};
+    completedAppointments.forEach(apt => {
+      const date = apt.completedAt || apt.date;
+      if (!date) return;
+      
+      const aptDate = new Date(date);
+      if (aptDate < sixMonthsAgo) return;
+      
+      const monthKey = `${aptDate.getFullYear()}-${String(aptDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!monthlyMap[monthKey]) {
+        monthlyMap[monthKey] = { bookings: 0, revenue: 0 };
+      }
+      
+      monthlyMap[monthKey].bookings++;
+      monthlyMap[monthKey].revenue += apt.finalPrice || apt.estimatedPrice || apt.price || 0;
+    });
+
+    const monthlyStats = Object.entries(monthlyMap)
+      .map(([month, stats]) => ({ month, ...stats }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    // Ratings
+    let avgRating = null;
+    try {
+      const reviewsSnapshot = await db()
+        .collection('studios')
+        .doc(studioId)
+        .collection('reviews')
+        .where('serviceId', '==', id)
+        .get();
+
+      if (!reviewsSnapshot.empty) {
+        const ratings = reviewsSnapshot.docs
+          .map(doc => doc.data().rating)
+          .filter(r => typeof r === 'number' && r > 0);
+        
+        if (ratings.length > 0) {
+          avgRating = ratings.reduce((sum, r) => sum + r, 0) / ratings.length;
+        }
+      }
+    } catch (err) {
+      // Reviews may not exist
+    }
+
+    const lastBooked = completedAppointments.length > 0
+      ? completedAppointments[0].completedAt || completedAppointments[0].date
+      : null;
+
+    res.json({
+      success: true,
+      serviceId: id,
+      serviceName: service?.name || 'Unknown',
+      bookingCount,
+      totalRevenue,
+      avgRating,
+      lastBooked,
+      recentBookings,
+      monthlyStats,
+    });
+
+  } catch (error: any) {
+    console.error('Get Service Stats Error:', error);
+    res.status(500).json({ error: 'Failed to get service stats', message: error.message });
   }
 });
 
