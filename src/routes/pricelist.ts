@@ -19,6 +19,7 @@ const POPULAR_THRESHOLD = 10;
 const serviceSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
+  imageUrl: z.string().url().optional(),
   category: z.enum(['tattoo', 'piercing', 'consultation', 'touch-up', 'cover-up', 'removal', 'other']),
   pricingType: z.enum(['fixed', 'hourly', 'custom', 'starting-at']),
   price: z.number().min(0).optional(),
