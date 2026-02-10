@@ -270,7 +270,7 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
 
     const appointments = appointmentsSnapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data()
+      ...(doc.data() as any)
     }));
 
     const completedAppointments = appointments.filter(apt => apt.status === 'completed');
