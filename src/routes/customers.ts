@@ -33,6 +33,12 @@ const customerSchema = z.object({
   avatarUrl: z.string().optional().nullable(),
   username: z.string().optional().nullable(),
   displayName: z.string().optional().nullable(),
+  // Custom photo
+  customAvatarUrl: z.string().url().optional().nullable(),
+  // Favorites
+  isFavorite: z.boolean().optional().nullable(),
+  // Enhanced tracking
+  customerSince: z.string().optional().nullable(),
   // Stats fields
   appointmentCount: z.number().optional().nullable(),
   totalSpent: z.number().optional().nullable(),
