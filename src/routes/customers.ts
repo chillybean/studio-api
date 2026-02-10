@@ -28,6 +28,15 @@ const customerSchema = z.object({
   notes: z.string().optional().nullable(),
   source: z.enum(['walk-in', 'referral', 'social-media', 'website', 'other']).optional(),
   tags: z.array(z.string()).optional(),
+  // Profile linking fields
+  linkedUserId: z.string().optional().nullable(),
+  avatarUrl: z.string().optional().nullable(),
+  username: z.string().optional().nullable(),
+  displayName: z.string().optional().nullable(),
+  // Stats fields
+  appointmentCount: z.number().optional().nullable(),
+  totalSpent: z.number().optional().nullable(),
+  lastVisit: z.string().optional().nullable(),
 });
 
 const updateCustomerSchema = customerSchema.partial();
