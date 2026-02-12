@@ -5,12 +5,132 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { getFirestore } from '../config/firebase';
+import { getAuth, getFirestore } from '../config/firebase';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
+import * as admin from 'firebase-admin';
 
 const router = Router();
 const db = () => getFirestore();
+
+type BookingDoc = {
+  salonId?: string;
+  userId?: string;
+  customerUid?: string;
+  serviceType?: string;
+  timeSlot?: string;
+  slot?: any;
+  status?: string;
+  notes?: string | null;
+  createdAt?: any;
+  updatedAt?: any;
+  cancellationReason?: string | null;
+};
+
+const bookingToAppointmentStatus: Record<string, string> = {
+  pending: 'scheduled',
+  confirmed: 'confirmed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+};
+
+const appointmentToBookingStatus: Record<string, string | null> = {
+  scheduled: 'pending',
+  confirmed: 'confirmed',
+  'in-progress': 'confirmed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+  'no-show': 'cancelled',
+};
+
+function toIso(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (value instanceof admin.firestore.Timestamp) return value.toDate().toISOString();
+  if (typeof value?.toDate === 'function') return value.toDate().toISOString();
+  return null;
+}
+
+function toDateString(iso: string): string {
+  return iso.split('T')[0];
+}
+
+function toTimeString(iso: string): string {
+  const date = new Date(iso);
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+}
+
+async function resolveStudioOwnerUid(studioId: string): Promise<string | null> {
+  const studioSnap = await db().collection('studios').doc(studioId).get();
+  if (studioSnap.exists) {
+    const studio = studioSnap.data() as Record<string, any>;
+    const owner = studio.ownerId ?? studio.ownerUid ?? studio.ownerUserId;
+    if (typeof owner === 'string' && owner) return owner;
+  }
+
+  const salonSnap = await db().collection('salons').doc(studioId).get();
+  if (salonSnap.exists) {
+    const salon = salonSnap.data() as Record<string, any>;
+    const owner = salon.ownerUserId ?? salon.ownerUid ?? salon.ownerId;
+    if (typeof owner === 'string' && owner) return owner;
+  }
+
+  return null;
+}
+
+async function requireStudioAccess(req: Request, res: Response, studioId: string): Promise<string | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing or invalid authorization header' });
+    return null;
+  }
+
+  const token = authHeader.substring(7);
+  let decodedToken: admin.auth.DecodedIdToken;
+  try {
+    decodedToken = await getAuth().verifyIdToken(token);
+  } catch (_) {
+    res.status(401).json({ error: 'Invalid auth token' });
+    return null;
+  }
+
+  const uid = decodedToken.uid;
+  if (decodedToken.admin === true) return uid;
+
+  const ownerUid = await resolveStudioOwnerUid(studioId);
+  if (ownerUid && ownerUid === uid) return uid;
+
+  if (!ownerUid && studioId === uid) return uid;
+
+  res.status(403).json({ error: 'Not authorized for this studio' });
+  return null;
+}
+
+function mapBookingToAppointment(id: string, booking: BookingDoc) {
+  const slotIso = toIso(booking.timeSlot) ?? toIso(booking.slot);
+  const status = bookingToAppointmentStatus[booking.status || 'pending'] || 'scheduled';
+
+  return {
+    id,
+    source: 'booking',
+    bookingId: id,
+    studioId: booking.salonId,
+    customerId: booking.userId || booking.customerUid || null,
+    customerUid: booking.userId || booking.customerUid || null,
+    serviceName: booking.serviceType || null,
+    designDescription: booking.serviceType || null,
+    date: slotIso ? toDateString(slotIso) : null,
+    startTime: slotIso ? toTimeString(slotIso) : null,
+    dateTime: slotIso,
+    status,
+    notes: booking.notes || null,
+    duration: 60,
+    durationMinutes: 60,
+    createdAt: toIso(booking.createdAt),
+    updatedAt: toIso(booking.updatedAt),
+    cancellationReason: booking.cancellationReason || null,
+  };
+}
 
 // Validation schemas
 const appointmentSchema = z.object({
@@ -48,6 +168,9 @@ router.get('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
+
     const { 
       startDate, 
       endDate, 
@@ -79,6 +202,16 @@ router.get('/', async (req: Request, res: Response) => {
       id: doc.id,
       ...doc.data()
     }));
+
+    const bookingsSnap = await db()
+      .collection('bookings')
+      .where('salonId', '==', studioId)
+      .limit(parseInt(limit as string))
+      .get();
+    const bookingAppointments = bookingsSnap.docs.map((doc) =>
+      mapBookingToAppointment(doc.id, doc.data() as BookingDoc)
+    );
+    appointments = [...appointments, ...bookingAppointments];
 
     // Additional client-side filters
     if (status) {
@@ -114,6 +247,9 @@ router.get('/calendar/:year/:month', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
+
     const { year, month } = req.params;
     const yearNum = parseInt(year);
     const monthNum = parseInt(month);
@@ -131,10 +267,19 @@ router.get('/calendar/:year/:month', async (req: Request, res: Response) => {
       .orderBy('date', 'asc')
       .get();
 
-    const appointments = snapshot.docs.map(doc => ({
+    let appointments = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+
+    const bookingsSnap = await db()
+      .collection('bookings')
+      .where('salonId', '==', studioId)
+      .get();
+    const bookingAppointments = bookingsSnap.docs
+      .map((doc) => mapBookingToAppointment(doc.id, doc.data() as BookingDoc))
+      .filter((apt) => apt.date && apt.date >= startDate && apt.date <= endDate);
+    appointments = [...appointments, ...bookingAppointments];
 
     // Group by date
     const calendarData: Record<string, any[]> = {};
@@ -171,6 +316,9 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
+
     const { id } = req.params;
 
     const appointmentDoc = await db()
@@ -181,7 +329,19 @@ router.get('/:id', async (req: Request, res: Response) => {
       .get();
 
     if (!appointmentDoc.exists) {
-      return res.status(404).json({ error: 'Appointment not found' });
+      const bookingDoc = await db().collection('bookings').doc(id).get();
+      if (!bookingDoc.exists) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+      const booking = bookingDoc.data() as BookingDoc;
+      if (booking.salonId !== studioId) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+
+      return res.json({
+        success: true,
+        appointment: mapBookingToAppointment(id, booking),
+      });
     }
 
     // Get customer info if available
@@ -224,6 +384,9 @@ router.post('/', async (req: Request, res: Response) => {
     if (!studioId) {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
+
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
 
     const validation = appointmentSchema.safeParse(req.body);
     if (!validation.success) {
@@ -289,6 +452,9 @@ router.put('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
+
     const { id } = req.params;
 
     const validation = updateAppointmentSchema.safeParse(req.body);
@@ -343,6 +509,9 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
+
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -359,7 +528,45 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 
     const appointmentDoc = await appointmentRef.get();
     if (!appointmentDoc.exists) {
-      return res.status(404).json({ error: 'Appointment not found' });
+      const bookingRef = db().collection('bookings').doc(id);
+      const bookingDoc = await bookingRef.get();
+      if (!bookingDoc.exists) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+      const booking = bookingDoc.data() as BookingDoc;
+      if (booking.salonId !== studioId) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+
+      const mappedStatus = appointmentToBookingStatus[status] || null;
+      if (!mappedStatus) {
+        return res.status(400).json({ error: 'Unsupported status for booking-backed appointment' });
+      }
+
+      await bookingRef.update({
+        status: mappedStatus,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        ...(mappedStatus === 'cancelled' ? { cancellationReason: notes || null } : {}),
+      });
+
+      await bookingRef.collection('events').add({
+        type: 'status_change',
+        actorUid: uid,
+        bookingId: id,
+        metadata: {
+          from: booking.status || null,
+          to: mappedStatus,
+          reason: notes || null,
+          source: 'studio-api',
+        },
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const updatedBookingDoc = await bookingRef.get();
+      return res.json({
+        success: true,
+        appointment: mapBookingToAppointment(id, updatedBookingDoc.data() as BookingDoc),
+      });
     }
 
     const updateData: any = {
@@ -420,6 +627,9 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
 
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
+
     const { id } = req.params;
     const { hard } = req.query;
 
@@ -431,7 +641,38 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     const appointmentDoc = await appointmentRef.get();
     if (!appointmentDoc.exists) {
-      return res.status(404).json({ error: 'Appointment not found' });
+      const bookingRef = db().collection('bookings').doc(id);
+      const bookingDoc = await bookingRef.get();
+      if (!bookingDoc.exists) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+      const booking = bookingDoc.data() as BookingDoc;
+      if (booking.salonId !== studioId) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+
+      await bookingRef.update({
+        status: 'cancelled',
+        cancellationReason: 'Cancelled via studio-api',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await bookingRef.collection('events').add({
+        type: 'status_change',
+        actorUid: uid,
+        bookingId: id,
+        metadata: {
+          from: booking.status || null,
+          to: 'cancelled',
+          source: 'studio-api',
+        },
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return res.json({
+        success: true,
+        message: 'Appointment cancelled successfully',
+      });
     }
 
     if (hard === 'true') {
@@ -465,6 +706,9 @@ router.get('/availability/:date', async (req: Request, res: Response) => {
     if (!studioId) {
       return res.status(400).json({ error: 'Studio ID is required' });
     }
+
+    const uid = await requireStudioAccess(req, res, studioId);
+    if (!uid) return;
 
     const { date } = req.params;
     const { artistId, duration = '60' } = req.query;
