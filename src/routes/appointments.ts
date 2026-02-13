@@ -651,6 +651,26 @@ router.delete('/:id', async (req: Request, res: Response) => {
         return res.status(404).json({ error: 'Appointment not found' });
       }
 
+      const slotIso = toIso(booking.timeSlot) ?? toIso(booking.slot);
+      const slotMs = slotIso ? Date.parse(slotIso) : Number.NaN;
+      const isStale = Number.isFinite(slotMs) && slotMs < (Date.now() - 60 * 60 * 1000);
+      const status = String(booking.status || '').toLowerCase();
+      const isTerminal = status === 'cancelled' || status === 'completed';
+
+      if (hard === 'true' && (isTerminal || isStale)) {
+        await bookingRef.delete();
+        return res.json({
+          success: true,
+          message: 'Appointment deleted successfully',
+        });
+      }
+
+      if (hard === 'true' && !isTerminal && !isStale) {
+        return res.status(400).json({
+          error: 'Only cancelled/completed or stale appointments can be deleted',
+        });
+      }
+
       await bookingRef.update({
         status: 'cancelled',
         cancellationReason: 'Cancelled via studio-api',
