@@ -473,7 +473,89 @@ router.put('/:id', async (req: Request, res: Response) => {
 
     const appointmentDoc = await appointmentRef.get();
     if (!appointmentDoc.exists) {
-      return res.status(404).json({ error: 'Appointment not found' });
+      const bookingRef = db().collection('bookings').doc(id);
+      const bookingDoc = await bookingRef.get();
+      if (!bookingDoc.exists) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+
+      const booking = bookingDoc.data() as BookingDoc;
+      if (booking.salonId !== studioId) {
+        return res.status(404).json({ error: 'Appointment not found' });
+      }
+
+      const updateData: Record<string, any> = {
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (validation.data.designDescription) {
+        updateData.serviceType = validation.data.designDescription;
+      } else if ((validation.data as any).serviceName) {
+        updateData.serviceType = (validation.data as any).serviceName;
+      }
+
+      let nextStatus: string | null = null;
+      if (validation.data.status) {
+        nextStatus = appointmentToBookingStatus[validation.data.status] || null;
+        if (!nextStatus) {
+          return res.status(400).json({ error: 'Unsupported status for booking-backed appointment' });
+        }
+        updateData.status = nextStatus;
+        if (nextStatus === 'cancelled') {
+          updateData.cancellationReason = validation.data.notes || null;
+        }
+      }
+
+      let nextSlotIso: string | null = null;
+      if ((validation.data as any).dateTime) {
+        const parsed = new Date((validation.data as any).dateTime);
+        if (!Number.isNaN(parsed.getTime())) {
+          nextSlotIso = parsed.toISOString();
+          updateData.timeSlot = nextSlotIso;
+        }
+      } else if (validation.data.date && validation.data.startTime) {
+        const parsed = new Date(`${validation.data.date}T${validation.data.startTime}:00`);
+        if (!Number.isNaN(parsed.getTime())) {
+          nextSlotIso = parsed.toISOString();
+          updateData.timeSlot = nextSlotIso;
+        }
+      }
+
+      await bookingRef.update(updateData);
+
+      if (nextStatus && nextStatus !== booking.status) {
+        await bookingRef.collection('events').add({
+          type: 'status_change',
+          actorUid: uid,
+          bookingId: id,
+          metadata: {
+            from: booking.status || null,
+            to: nextStatus,
+            source: 'studio-api',
+          },
+          at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (nextSlotIso && nextSlotIso !== (toIso(booking.timeSlot) ?? toIso(booking.slot))) {
+        await bookingRef.collection('events').add({
+          type: 'rescheduled',
+          actorUid: uid,
+          bookingId: id,
+          metadata: {
+            fromSlot: toIso(booking.timeSlot) ?? toIso(booking.slot),
+            toSlot: nextSlotIso,
+            source: 'studio-api',
+          },
+          at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      const updatedBookingDoc = await bookingRef.get();
+      return res.json({
+        success: true,
+        appointment: mapBookingToAppointment(id, updatedBookingDoc.data() as BookingDoc),
+      });
     }
 
     const updateData = {
